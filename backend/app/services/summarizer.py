@@ -1,0 +1,352 @@
+"""
+Claude API を使用した YouTube 字幕テキスト要約サービス。
+
+Anthropic Python SDK を利用し、長い字幕テキストをチャンク分割して
+段階的に要約を生成するパイプラインを提供する。
+"""
+
+import os
+import logging
+from dataclasses import dataclass
+
+import anthropic
+
+logger = logging.getLogger(__name__)
+
+# --- 定数 ---
+MODEL_ID = "claude-sonnet-4-20250514"
+# 1チャンクあたりの最大文字数（日本語は1文字≒1-2トークン、余裕を持たせる）
+DEFAULT_CHUNK_SIZE = 8000
+# チャンク間のオーバーラップ文字数（文脈の断絶を防ぐ）
+DEFAULT_CHUNK_OVERLAP = 500
+# API呼び出し時の最大出力トークン数
+MAX_OUTPUT_TOKENS = 4096
+
+
+# --- プロンプトテンプレート ---
+
+CHUNK_SUMMARY_PROMPT = """\
+あなたはYouTube動画の字幕テキストを要約する専門家です。
+以下は動画の字幕テキストの一部（パート {part_number}/{total_parts}）です。
+
+<transcript_chunk>
+{chunk}
+</transcript_chunk>
+
+このパートの内容を以下の形式で要約してください:
+- 主要なポイントを箇条書きで3〜5個抽出
+- 各ポイントは1〜2文で簡潔に記述
+- 専門用語はそのまま残す
+
+出力は箇条書きのみにしてください。"""
+
+FINAL_SUMMARY_PROMPT = """\
+あなたはYouTube動画の字幕テキストを要約する専門家です。
+以下は動画全体の字幕テキストから抽出した各パートの要約です。
+
+<partial_summaries>
+{partial_summaries}
+</partial_summaries>
+
+上記の部分要約を統合し、以下のJSON形式で最終的な要約を生成してください。
+JSONのみを出力し、それ以外のテキストは含めないでください。
+
+{{
+  "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
+  "summary": "動画全体の概要を3〜5文で記述した要約文",
+  "key_points": [
+    "重要ポイント1",
+    "重要ポイント2",
+    "重要ポイント3"
+  ],
+  "topics": ["トピック1", "トピック2"]
+}}
+
+注意:
+- title は動画の核心を捉えた簡潔なものにする
+- summary は動画を見ていない人にも内容が伝わるようにする
+- key_points は3〜7個、各ポイントは1文で簡潔に
+- topics は動画の主題を表すキーワードを2〜5個"""
+
+SHORT_TEXT_PROMPT = """\
+あなたはYouTube動画の字幕テキストを要約する専門家です。
+以下は動画の字幕テキスト全文です。
+
+<transcript>
+{transcript}
+</transcript>
+
+上記の字幕テキストから、以下のJSON形式で要約を生成してください。
+JSONのみを出力し、それ以外のテキストは含めないでください。
+
+{{
+  "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
+  "summary": "動画全体の概要を3〜5文で記述した要約文",
+  "key_points": [
+    "重要ポイント1",
+    "重要ポイント2",
+    "重要ポイント3"
+  ],
+  "topics": ["トピック1", "トピック2"]
+}}
+
+注意:
+- title は動画の核心を捉えた簡潔なものにする
+- summary は動画を見ていない人にも内容が伝わるようにする
+- key_points は3〜7個、各ポイントは1文で簡潔に
+- topics は動画の主題を表すキーワードを2〜5個"""
+
+
+# --- データクラス ---
+
+@dataclass
+class SummaryResult:
+    """要約結果を格納するデータクラス。"""
+    title: str
+    summary: str
+    key_points: list[str]
+    topics: list[str]
+    chunk_count: int = 1
+    model: str = MODEL_ID
+
+
+@dataclass
+class ChunkInfo:
+    """分割されたチャンクの情報。"""
+    text: str
+    part_number: int
+    total_parts: int
+
+
+# --- メインサービス ---
+
+class SummarizerService:
+    """
+    Claude API を使って字幕テキストを要約するサービス。
+
+    短いテキストは直接要約し、長いテキストはチャンク分割 → 各チャンク要約 → 統合要約
+    のパイプラインで処理する。
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    ):
+        """
+        Args:
+            api_key: Anthropic API キー。未指定時は環境変数 ANTHROPIC_API_KEY を使用。
+            chunk_size: 1チャンクあたりの最大文字数。
+            chunk_overlap: チャンク間のオーバーラップ文字数。
+        """
+        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "APIキーが設定されていません。引数 api_key または環境変数 ANTHROPIC_API_KEY を設定してください。"
+            )
+        self.client = anthropic.Anthropic(api_key=resolved_key)
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    async def summarize_transcript(self, transcript: str) -> SummaryResult:
+        """
+        字幕テキストを受け取り、構造化された要約を返す。
+
+        短いテキスト（1チャンク以内）は直接要約し、
+        長いテキストはチャンク分割パイプラインで処理する。
+
+        Args:
+            transcript: YouTube動画の字幕テキスト全文。
+
+        Returns:
+            SummaryResult: 構造化された要約結果。
+
+        Raises:
+            anthropic.APIError: API呼び出しに失敗した場合。
+            ValueError: 字幕テキストが空の場合。
+        """
+        transcript = transcript.strip()
+        if not transcript:
+            raise ValueError("字幕テキストが空です。")
+
+        chunks = self._split_into_chunks(transcript)
+
+        if len(chunks) == 1:
+            # 短いテキスト: 直接要約
+            logger.info("短いテキスト: 直接要約を実行")
+            return await self._summarize_short(transcript)
+        else:
+            # 長いテキスト: チャンク分割パイプライン
+            logger.info("長いテキスト: %d チャンクに分割して要約", len(chunks))
+            return await self._summarize_long(chunks)
+
+    def _split_into_chunks(self, text: str) -> list[ChunkInfo]:
+        """
+        テキストをチャンクに分割する。
+
+        句点・改行などの自然な区切りを優先し、
+        オーバーラップを設けて文脈の断絶を防ぐ。
+
+        Args:
+            text: 分割対象のテキスト。
+
+        Returns:
+            ChunkInfo のリスト。
+        """
+        if len(text) <= self.chunk_size:
+            return [ChunkInfo(text=text, part_number=1, total_parts=1)]
+
+        chunks: list[str] = []
+        start = 0
+
+        while start < len(text):
+            end = start + self.chunk_size
+
+            if end >= len(text):
+                # 残りのテキストが1チャンク以内
+                chunks.append(text[start:])
+                break
+
+            # 自然な区切り位置を探す（句点、改行を優先）
+            split_pos = self._find_split_position(text, start, end)
+            chunks.append(text[start:split_pos])
+
+            # オーバーラップを考慮して次の開始位置を決定
+            start = split_pos - self.chunk_overlap
+            if start < 0:
+                start = 0
+
+        total = len(chunks)
+        return [
+            ChunkInfo(text=chunk, part_number=i + 1, total_parts=total)
+            for i, chunk in enumerate(chunks)
+        ]
+
+    @staticmethod
+    def _find_split_position(text: str, start: int, end: int) -> int:
+        """
+        自然な区切り位置を探す。
+
+        句点 → 改行 → 読点 → スペース の優先順位で探し、
+        見つからなければ end をそのまま返す。
+        """
+        # 探索範囲: end から少し前方（チャンクサイズの20%分）
+        search_start = max(start, end - (end - start) // 5)
+        segment = text[search_start:end]
+
+        # 優先順位の高い区切り文字から順に探す
+        for delimiter in ["。", "\n\n", "\n", "、", ".", " "]:
+            pos = segment.rfind(delimiter)
+            if pos != -1:
+                return search_start + pos + len(delimiter)
+
+        return end
+
+    async def _summarize_short(self, transcript: str) -> SummaryResult:
+        """短いテキストを直接要約する。"""
+        prompt = SHORT_TEXT_PROMPT.format(transcript=transcript)
+        raw = await self._call_api(prompt)
+        return self._parse_summary_response(raw, chunk_count=1)
+
+    async def _summarize_long(self, chunks: list[ChunkInfo]) -> SummaryResult:
+        """
+        長いテキストをチャンク分割パイプラインで要約する。
+
+        1. 各チャンクを個別に要約
+        2. 部分要約を統合して最終要約を生成
+        """
+        # ステップ1: 各チャンクの要約
+        partial_summaries: list[str] = []
+        for chunk in chunks:
+            logger.info("チャンク %d/%d を要約中...", chunk.part_number, chunk.total_parts)
+            prompt = CHUNK_SUMMARY_PROMPT.format(
+                part_number=chunk.part_number,
+                total_parts=chunk.total_parts,
+                chunk=chunk.text,
+            )
+            result = await self._call_api(prompt)
+            partial_summaries.append(f"【パート {chunk.part_number}】\n{result}")
+
+        # ステップ2: 統合要約
+        logger.info("部分要約を統合中...")
+        combined = "\n\n".join(partial_summaries)
+        prompt = FINAL_SUMMARY_PROMPT.format(partial_summaries=combined)
+        raw = await self._call_api(prompt)
+        return self._parse_summary_response(raw, chunk_count=len(chunks))
+
+    async def _call_api(self, prompt: str) -> str:
+        """
+        Claude API を呼び出す。
+
+        同期クライアントを使用し、asyncio の run_in_executor でラップして
+        非同期コンテキストから呼び出し可能にしている。
+
+        Args:
+            prompt: ユーザープロンプト。
+
+        Returns:
+            モデルの応答テキスト。
+
+        Raises:
+            anthropic.APIError: API呼び出しに失敗した場合。
+        """
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.messages.create(
+                model=MODEL_ID,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+        )
+        return response.content[0].text
+
+    @staticmethod
+    def _parse_summary_response(raw: str, chunk_count: int) -> SummaryResult:
+        """
+        APIレスポンスのJSON文字列をパースして SummaryResult に変換する。
+
+        JSON部分の抽出を試み、パースに失敗した場合はフォールバック値を返す。
+
+        Args:
+            raw: APIからの生レスポンス文字列。
+            chunk_count: 処理したチャンク数。
+
+        Returns:
+            SummaryResult インスタンス。
+        """
+        import json
+
+        # レスポンスからJSON部分を抽出
+        text = raw.strip()
+
+        # ```json ... ``` で囲まれている場合に対応
+        if text.startswith("```"):
+            lines = text.split("\n")
+            # 先頭行と末尾行を除去
+            lines = [l for l in lines[1:] if not l.strip().startswith("```")]
+            text = "\n".join(lines)
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # JSONパース失敗時はフォールバック
+            logger.warning("JSONパースに失敗しました。フォールバック値を使用します。")
+            return SummaryResult(
+                title="要約の生成に部分的に成功",
+                summary=raw[:500],
+                key_points=["要約結果のパースに失敗しました。生テキストを確認してください。"],
+                topics=[],
+                chunk_count=chunk_count,
+            )
+
+        return SummaryResult(
+            title=data.get("title", "タイトル不明"),
+            summary=data.get("summary", ""),
+            key_points=data.get("key_points", []),
+            topics=data.get("topics", []),
+            chunk_count=chunk_count,
+        )
