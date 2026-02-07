@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 # --- 定数 ---
 MODEL_ID = "llama-3.3-70b-versatile"
-# 1チャンクあたりの最大文字数（日本語は1文字≒1-2トークン、余裕を持たせる）
+# 1チャンクあたりの最大文字数(日本語は1文字≒1-2トークン、余裕を持たせる)
 DEFAULT_CHUNK_SIZE = 8000
-# チャンク間のオーバーラップ文字数（文脈の断絶を防ぐ）
+# チャンク間のオーバーラップ文字数(文脈の断絶を防ぐ)
 DEFAULT_CHUNK_OVERLAP = 500
 # API呼び出し時の最大出力トークン数
 MAX_OUTPUT_TOKENS = 4096
@@ -27,7 +27,7 @@ MAX_OUTPUT_TOKENS = 4096
 
 CHUNK_SUMMARY_PROMPT = """\
 あなたはYouTube動画の字幕テキストを要約する専門家です。
-以下は動画の字幕テキストの一部（パート {part_number}/{total_parts}）です。
+以下は動画の字幕テキストの一部(パート {part_number}/{total_parts})です。
 
 <transcript_chunk>
 {chunk}
@@ -52,7 +52,7 @@ FINAL_SUMMARY_PROMPT = """\
 JSONのみを出力し、それ以外のテキストは含めないでください。
 
 {{
-  "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
+  "title": "動画の内容を端的に表す日本語タイトル(20文字以内)",
   "summary": "動画全体の概要を3〜5文で記述した要約文",
   "key_points": [
     {{ "text": "重要ポイント1", "start_seconds": null }},
@@ -64,7 +64,7 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 注意:
 - title は動画の核心を捉えた簡潔なものにする
 - summary は動画を見ていない人にも内容が伝わるようにする
-- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": null }}（部分要約からは時刻が出ないため null）
+- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": null }}(部分要約からは時刻が出ないため null)
 - topics は動画の主題を表すキーワードを2〜5個"""
 
 SHORT_TEXT_PROMPT = """\
@@ -79,7 +79,7 @@ SHORT_TEXT_PROMPT = """\
 JSONのみを出力し、それ以外のテキストは含めないでください。
 
 {{
-  "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
+  "title": "動画の内容を端的に表す日本語タイトル(20文字以内)",
   "summary": "動画全体の概要を3〜5文で記述した要約文",
   "key_points": [
     {{ "text": "重要ポイント1", "start_seconds": 該当する [秒数] の整数 }},
@@ -99,7 +99,7 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 
 @dataclass
 class KeyPointItem:
-    """キーポイント1件（開始秒数は任意）"""
+    """キーポイント1件(開始秒数は任意)"""
     text: str
     start_seconds: int | None = None
 
@@ -158,7 +158,7 @@ class SummarizerService:
         """
         字幕テキストを受け取り、構造化された要約を返す。
 
-        短いテキスト（1チャンク以内）は直接要約し、
+        短いテキスト(1チャンク以内)は直接要約し、
         長いテキストはチャンク分割パイプラインで処理する。
 
         Args:

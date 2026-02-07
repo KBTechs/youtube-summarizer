@@ -50,7 +50,7 @@ async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
             detail={"detail": e.message, "error_code": e.error_code},
         )
 
-    # ステップ3: Claude APIで要約を生成（字幕に [秒数] を付与して時刻付きキーポイントを得る）
+    # ステップ3: Groq APIで要約を生成(字幕に [秒数] を付与して時刻付きキーポイントを得る)
     timestamped_text = "\n".join(
         f"[{int(seg.start)}] {seg.text}" for seg in transcript.segments
     )

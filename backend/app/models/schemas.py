@@ -17,7 +17,7 @@ class SummarizeRequest(BaseModel):
     )
     language: str = Field(
         default="ja",
-        description="字幕の言語コード（例: ja, en）",
+        description="字幕の言語コード(例: ja, en)",
     )
 
     @field_validator("url")
@@ -38,8 +38,8 @@ class TranscriptSegment(BaseModel):
     """字幕セグメントのスキーマ"""
 
     text: str = Field(..., description="字幕テキスト")
-    start: float = Field(..., description="開始時間（秒）")
-    duration: float = Field(..., description="継続時間（秒）")
+    start: float = Field(..., description="開始時間(秒)")
+    duration: float = Field(..., description="継続時間(秒)")
 
 
 class TranscriptResult(BaseModel):
@@ -53,10 +53,10 @@ class TranscriptResult(BaseModel):
 
 
 class KeyPointItem(BaseModel):
-    """キーポイント1件（任意で開始秒数付き）"""
+    """キーポイント1件(任意で開始秒数付き)"""
 
     text: str = Field(..., description="ポイントの内容")
-    start_seconds: int | None = Field(default=None, description="動画内の開始秒数（あれば）")
+    start_seconds: int | None = Field(default=None, description="動画内の開始秒数(あれば)")
 
 
 class SummarizeResponse(BaseModel):
@@ -65,7 +65,7 @@ class SummarizeResponse(BaseModel):
     video_id: str = Field(..., description="YouTube動画ID")
     title: str = Field(default="", description="動画タイトル")
     summary: str = Field(..., description="要約テキスト")
-    key_points: list[KeyPointItem] = Field(default_factory=list, description="重要ポイントのリスト（開始秒数付き）")
+    key_points: list[KeyPointItem] = Field(default_factory=list, description="重要ポイントのリスト(開始秒数付き)")
     topics: list[str] = Field(default_factory=list, description="トピックキーワードのリスト")
     language: str = Field(..., description="字幕の言語コード")
     transcript_length: int = Field(..., description="元の字幕の文字数")
