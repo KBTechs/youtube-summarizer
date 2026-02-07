@@ -13,4 +13,4 @@ ENV PORT=8000
 EXPOSE 8000
 
 # Railway は実行時に PORT を注入。sh -c で展開しないと "$PORT" がそのまま渡ってエラーになる
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
