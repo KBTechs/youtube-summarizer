@@ -7,8 +7,13 @@ YouTube 字幕取得サービス
   2. 字幕取得APIが直感的で使いやすい
   3. 言語指定・フォールバック対応が組み込み済み
   4. 動画のダウンロードは不要なため、yt-dlpはオーバースペック
+
+クラウド(Railway等)ではYouTubeがIPをブロックすることがあるため、
+環境変数 YOUTUBE_PROXY_URL を設定するとプロキシ経由で取得する。
+例: http://proxy.example.com:8080 または socks5://user:pass@host:1080
 """
 
+import os
 import re
 import logging
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -17,6 +22,18 @@ from youtube_transcript_api.formatters import TextFormatter
 from app.models.schemas import TranscriptResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
+
+# 1.0.0+ でプロキシ対応。未対応バージョンでは None のまま
+_proxy_config = None
+try:
+    from youtube_transcript_api.proxies import GenericProxyConfig
+
+    _proxy_url = (os.getenv("YOUTUBE_PROXY_URL") or "").strip()
+    if _proxy_url:
+        _proxy_config = GenericProxyConfig(http_url=_proxy_url, https_url=_proxy_url)
+        logger.info("YouTube 字幕取得: プロキシを有効にしました")
+except ImportError:
+    pass
 
 
 class YouTubeTranscriptError(Exception):
@@ -76,7 +93,10 @@ async def fetch_transcript(
 
     try:
         # 指定言語の字幕を取得(見つからない場合は自動生成字幕にフォールバック)
-        ytt_api = YouTubeTranscriptApi()
+        if _proxy_config is not None:
+            ytt_api = YouTubeTranscriptApi(proxy_config=_proxy_config)
+        else:
+            ytt_api = YouTubeTranscriptApi()
         transcript_list = ytt_api.list(video_id)
 
         try:
