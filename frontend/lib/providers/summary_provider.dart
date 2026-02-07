@@ -54,6 +54,21 @@ final summaryHistoryProvider =
   return SummaryHistoryNotifier();
 });
 
+/// YouTube URL から動画ID（11文字）を抽出
+String? _extractVideoId(String url) {
+  final trimmed = url.trim();
+  final patterns = [
+    RegExp(r'[?&]v=([\w-]{11})'),
+    RegExp(r'youtu\.be/([\w-]{11})'),
+    RegExp(r'shorts/([\w-]{11})'),
+  ];
+  for (final p in patterns) {
+    final m = p.firstMatch(trimmed);
+    if (m != null) return m.group(1);
+  }
+  return null;
+}
+
 /// 要約状態を管理するNotifier
 class SummaryNotifier extends StateNotifier<SummaryState> {
   final ApiService _apiService;
@@ -61,8 +76,17 @@ class SummaryNotifier extends StateNotifier<SummaryState> {
 
   SummaryNotifier(this._apiService, this._history) : super(const SummaryInitial());
 
-  /// YouTube URLから要約を取得
+  /// YouTube URLから要約を取得（履歴に同じ動画があればAPIは呼ばず表示する）
   Future<void> summarize(String url) async {
+    final videoId = _extractVideoId(url);
+    if (videoId != null) {
+      final existingList = _history.state.where((s) => s.videoId == videoId).toList();
+      if (existingList.isNotEmpty) {
+        state = SummaryLoaded(existingList.first);
+        return;
+      }
+    }
+
     state = const SummaryLoading();
     try {
       final summary = await _apiService.summarize(url: url);

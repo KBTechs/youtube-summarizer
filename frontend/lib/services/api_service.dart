@@ -3,9 +3,12 @@ import 'package:http/http.dart' as http;
 import '../models/summary.dart';
 
 /// バックエンドAPIとの通信を担当するサービス
+/// 本番ビルド時: flutter build web --dart-define=API_BASE_URL=https://あなたのAPIのURL
 class ApiService {
-  // バックエンドのベースURL（開発環境）
-  static const String _baseUrl = 'http://localhost:8000';
+  static final String _baseUrl = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:8000',
+  );
 
   final http.Client _client;
 

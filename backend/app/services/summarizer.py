@@ -1,7 +1,7 @@
 """
-Claude API を使用した YouTube 字幕テキスト要約サービス。
+Groq API を使用した YouTube 字幕テキスト要約サービス。
 
-Anthropic Python SDK を利用し、長い字幕テキストをチャンク分割して
+Groq Python SDK を利用し、長い字幕テキストをチャンク分割して
 段階的に要約を生成するパイプラインを提供する。
 """
 
@@ -9,12 +9,12 @@ import os
 import logging
 from dataclasses import dataclass
 
-import anthropic
+from groq import AsyncGroq
 
 logger = logging.getLogger(__name__)
 
 # --- 定数 ---
-MODEL_ID = "claude-sonnet-4-20250514"
+MODEL_ID = "llama-3.3-70b-versatile"
 # 1チャンクあたりの最大文字数（日本語は1文字≒1-2トークン、余裕を持たせる）
 DEFAULT_CHUNK_SIZE = 8000
 # チャンク間のオーバーラップ文字数（文脈の断絶を防ぐ）
@@ -127,7 +127,7 @@ class ChunkInfo:
 
 class SummarizerService:
     """
-    Claude API を使って字幕テキストを要約するサービス。
+    Groq API を使って字幕テキストを要約するサービス。
 
     短いテキストは直接要約し、長いテキストはチャンク分割 → 各チャンク要約 → 統合要約
     のパイプラインで処理する。
@@ -141,16 +141,16 @@ class SummarizerService:
     ):
         """
         Args:
-            api_key: Anthropic API キー。未指定時は環境変数 ANTHROPIC_API_KEY を使用。
+            api_key: Groq API キー。未指定時は環境変数 GROQ_API_KEY を使用。
             chunk_size: 1チャンクあたりの最大文字数。
             chunk_overlap: チャンク間のオーバーラップ文字数。
         """
-        resolved_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        resolved_key = api_key or os.getenv("GROQ_API_KEY")
         if not resolved_key:
             raise ValueError(
-                "APIキーが設定されていません。引数 api_key または環境変数 ANTHROPIC_API_KEY を設定してください。"
+                "APIキーが設定されていません。引数 api_key または環境変数 GROQ_API_KEY を設定してください。"
             )
-        self.client = anthropic.Anthropic(api_key=resolved_key)
+        self.client = AsyncGroq(api_key=resolved_key)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -168,7 +168,7 @@ class SummarizerService:
             SummaryResult: 構造化された要約結果。
 
         Raises:
-            anthropic.APIError: API呼び出しに失敗した場合。
+            groq.APIError: API呼び出しに失敗した場合。
             ValueError: 字幕テキストが空の場合。
         """
         transcript = transcript.strip()
@@ -178,27 +178,14 @@ class SummarizerService:
         chunks = self._split_into_chunks(transcript)
 
         if len(chunks) == 1:
-            # 短いテキスト: 直接要約
             logger.info("短いテキスト: 直接要約を実行")
             return await self._summarize_short(transcript)
         else:
-            # 長いテキスト: チャンク分割パイプライン
             logger.info("長いテキスト: %d チャンクに分割して要約", len(chunks))
             return await self._summarize_long(chunks)
 
     def _split_into_chunks(self, text: str) -> list[ChunkInfo]:
-        """
-        テキストをチャンクに分割する。
-
-        句点・改行などの自然な区切りを優先し、
-        オーバーラップを設けて文脈の断絶を防ぐ。
-
-        Args:
-            text: 分割対象のテキスト。
-
-        Returns:
-            ChunkInfo のリスト。
-        """
+        """テキストをチャンクに分割する。"""
         if len(text) <= self.chunk_size:
             return [ChunkInfo(text=text, part_number=1, total_parts=1)]
 
@@ -209,15 +196,12 @@ class SummarizerService:
             end = start + self.chunk_size
 
             if end >= len(text):
-                # 残りのテキストが1チャンク以内
                 chunks.append(text[start:])
                 break
 
-            # 自然な区切り位置を探す（句点、改行を優先）
             split_pos = self._find_split_position(text, start, end)
             chunks.append(text[start:split_pos])
 
-            # オーバーラップを考慮して次の開始位置を決定
             start = split_pos - self.chunk_overlap
             if start < 0:
                 start = 0
@@ -230,17 +214,10 @@ class SummarizerService:
 
     @staticmethod
     def _find_split_position(text: str, start: int, end: int) -> int:
-        """
-        自然な区切り位置を探す。
-
-        句点 → 改行 → 読点 → スペース の優先順位で探し、
-        見つからなければ end をそのまま返す。
-        """
-        # 探索範囲: end から少し前方（チャンクサイズの20%分）
+        """自然な区切り位置を探す。"""
         search_start = max(start, end - (end - start) // 5)
         segment = text[search_start:end]
 
-        # 優先順位の高い区切り文字から順に探す
         for delimiter in ["。", "\n\n", "\n", "、", ".", " "]:
             pos = segment.rfind(delimiter)
             if pos != -1:
@@ -255,13 +232,7 @@ class SummarizerService:
         return self._parse_summary_response(raw, chunk_count=1)
 
     async def _summarize_long(self, chunks: list[ChunkInfo]) -> SummaryResult:
-        """
-        長いテキストをチャンク分割パイプラインで要約する。
-
-        1. 各チャンクを個別に要約
-        2. 部分要約を統合して最終要約を生成
-        """
-        # ステップ1: 各チャンクの要約
+        """長いテキストをチャンク分割パイプラインで要約する。"""
         partial_summaries: list[str] = []
         for chunk in chunks:
             logger.info("チャンク %d/%d を要約中...", chunk.part_number, chunk.total_parts)
@@ -273,7 +244,6 @@ class SummarizerService:
             result = await self._call_api(prompt)
             partial_summaries.append(f"【パート {chunk.part_number}】\n{result}")
 
-        # ステップ2: 統合要約
         logger.info("部分要約を統合中...")
         combined = "\n\n".join(partial_summaries)
         prompt = FINAL_SUMMARY_PROMPT.format(partial_summaries=combined)
@@ -281,64 +251,29 @@ class SummarizerService:
         return self._parse_summary_response(raw, chunk_count=len(chunks))
 
     async def _call_api(self, prompt: str) -> str:
-        """
-        Claude API を呼び出す。
-
-        同期クライアントを使用し、asyncio の run_in_executor でラップして
-        非同期コンテキストから呼び出し可能にしている。
-
-        Args:
-            prompt: ユーザープロンプト。
-
-        Returns:
-            モデルの応答テキスト。
-
-        Raises:
-            anthropic.APIError: API呼び出しに失敗した場合。
-        """
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.client.messages.create(
-                model=MODEL_ID,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
-            ),
+        """Groq API を呼び出す。"""
+        chat_completion = await self.client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model=MODEL_ID,
+            max_completion_tokens=MAX_OUTPUT_TOKENS,
         )
-        return response.content[0].text
+        return chat_completion.choices[0].message.content or ""
 
     @staticmethod
     def _parse_summary_response(raw: str, chunk_count: int) -> SummaryResult:
-        """
-        APIレスポンスのJSON文字列をパースして SummaryResult に変換する。
-
-        JSON部分の抽出を試み、パースに失敗した場合はフォールバック値を返す。
-
-        Args:
-            raw: APIからの生レスポンス文字列。
-            chunk_count: 処理したチャンク数。
-
-        Returns:
-            SummaryResult インスタンス。
-        """
+        """APIレスポンスのJSON文字列をパースして SummaryResult に変換する。"""
         import json
 
-        # レスポンスからJSON部分を抽出
         text = raw.strip()
 
-        # ```json ... ``` で囲まれている場合に対応
         if text.startswith("```"):
             lines = text.split("\n")
-            # 先頭行と末尾行を除去
             lines = [l for l in lines[1:] if not l.strip().startswith("```")]
             text = "\n".join(lines)
 
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            # JSONパース失敗時はフォールバック
             logger.warning("JSONパースに失敗しました。フォールバック値を使用します。")
             return SummaryResult(
                 title="要約の生成に部分的に成功",
@@ -354,11 +289,11 @@ class SummarizerService:
             if isinstance(item, str):
                 key_points.append(KeyPointItem(text=item, start_seconds=None))
             elif isinstance(item, dict):
-                text = item.get("text", "")
+                text_val = item.get("text", "")
                 sec = item.get("start_seconds")
                 if sec is not None and not isinstance(sec, int):
                     sec = int(sec) if sec is not None else None
-                key_points.append(KeyPointItem(text=text, start_seconds=sec))
+                key_points.append(KeyPointItem(text=text_val, start_seconds=sec))
             else:
                 key_points.append(KeyPointItem(text=str(item), start_seconds=None))
 

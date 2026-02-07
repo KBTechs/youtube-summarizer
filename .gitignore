@@ -37,3 +37,6 @@ htmlcov/
 
 # ログ
 *.log
+
+# 手順メモなど（README 以外の .md は Git に含めない）
+docs/*.md
