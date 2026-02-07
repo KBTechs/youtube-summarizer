@@ -3,7 +3,14 @@ FastAPI アプリケーションのエントリポイント
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
+
+# backend/.env を確実に読み込む(どこから起動しても動くように)
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_backend_dir, ".env"))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,10 +40,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS設定（Flutter Webからのアクセスを許可）
+# CORS設定(本番では CORS_ORIGINS にフロントのURLを指定: 例 https://myapp.netlify.app)
+_cors_origins = os.getenv("CORS_ORIGINS", "*")
+allow_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 本番環境では適切なオリジンに制限すること
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

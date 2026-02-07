@@ -3,9 +3,12 @@ import 'package:http/http.dart' as http;
 import '../models/summary.dart';
 
 /// バックエンドAPIとの通信を担当するサービス
+/// 本番ビルド時: flutter build web --dart-define=API_BASE_URL=https://あなたのAPIのURL
 class ApiService {
-  // バックエンドのベースURL（開発環境）
-  static const String _baseUrl = 'http://localhost:8000';
+  static final String _baseUrl = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:8000',
+  );
 
   final http.Client _client;
 
@@ -30,9 +33,29 @@ class ApiService {
       return VideoSummary.fromJson(json);
     } else {
       final errorBody = jsonDecode(response.body) as Map<String, dynamic>;
-      final message = errorBody['detail'] ?? '要約の取得に失敗しました';
-      throw ApiException(message: message.toString(), statusCode: response.statusCode);
+      final detail = errorBody['detail'];
+      final String message = _extractErrorMessage(detail);
+      throw ApiException(message: message, statusCode: response.statusCode);
     }
+  }
+
+  /// バックエンドの detail が文字列・オブジェクト・配列のどれでもメッセージを抽出
+  static String _extractErrorMessage(dynamic detail) {
+    if (detail == null) return '要約の取得に失敗しました';
+    if (detail is String) return detail;
+    if (detail is Map<String, dynamic>) {
+      final msg = detail['detail'] ?? detail['message'];
+      if (msg is String) return msg;
+    }
+    // 422 バリデーションエラーなどで detail が配列の場合
+    if (detail is List && detail.isNotEmpty) {
+      final first = detail.first;
+      if (first is Map<String, dynamic>) {
+        final msg = first['msg'] ?? first['message'];
+        if (msg is String) return msg;
+      }
+    }
+    return '要約の取得に失敗しました';
   }
 
   void dispose() {

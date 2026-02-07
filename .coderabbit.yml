@@ -1,0 +1,6 @@
+# CodeRabbit 設定（レビューを日本語で表示）
+language: ja
+
+# PR タイトルは「Develop」など曖昧な名前ではなく、
+# 変更内容が分かる具体的なタイトルにするとよいです。
+# 例: Migrate summarizer to Groq, add Flutter frontend and history

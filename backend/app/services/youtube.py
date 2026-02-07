@@ -3,7 +3,7 @@ YouTube 字幕取得サービス
 
 ライブラリ選定: youtube-transcript-api を採用
 - 理由:
-  1. 軽量（字幕取得に特化、yt-dlpは汎用的で依存が大きい）
+  1. 軽量(字幕取得に特化、yt-dlpは汎用的で依存が大きい)
   2. 字幕取得APIが直感的で使いやすい
   3. 言語指定・フォールバック対応が組み込み済み
   4. 動画のダウンロードは不要なため、yt-dlpはオーバースペック
@@ -23,6 +23,7 @@ class YouTubeTranscriptError(Exception):
     """字幕取得に関するカスタム例外"""
 
     def __init__(self, message: str, error_code: str = "TRANSCRIPT_ERROR"):
+        """エラーメッセージとコードを設定する。"""
         self.message = message
         self.error_code = error_code
         super().__init__(self.message)
@@ -62,7 +63,7 @@ async def fetch_transcript(
 
     Args:
         url: YouTube動画のURL
-        language: 字幕の言語コード（デフォルト: ja）
+        language: 字幕の言語コード(デフォルト: ja)
 
     Returns:
         TranscriptResult: 字幕取得結果
@@ -74,7 +75,7 @@ async def fetch_transcript(
     logger.info(f"字幕取得開始: video_id={video_id}, language={language}")
 
     try:
-        # 指定言語の字幕を取得（見つからない場合は自動生成字幕にフォールバック）
+        # 指定言語の字幕を取得(見つからない場合は自動生成字幕にフォールバック)
         ytt_api = YouTubeTranscriptApi()
         transcript_list = ytt_api.list(video_id)
 
@@ -93,7 +94,7 @@ async def fetch_transcript(
                         transcript = transcript.translate(language)
                 except Exception:
                     raise YouTubeTranscriptError(
-                        f"この動画には利用可能な字幕がありません（言語: {language}）",
+                        f"この動画には利用可能な字幕がありません(言語: {language})",
                         error_code="NO_TRANSCRIPT",
                     )
 
@@ -121,7 +122,7 @@ async def fetch_transcript(
 
         return TranscriptResult(
             video_id=video_id,
-            title="",  # タイトルは別途取得が必要（将来拡張）
+            title="",  # タイトルは別途取得が必要(将来拡張)
             language=language,
             segments=segments,
             full_text=full_text,
