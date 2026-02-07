@@ -40,9 +40,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS設定(本番では CORS_ORIGINS にフロントのURLを指定: 例 https://myapp.netlify.app)
-_cors_origins = os.getenv("CORS_ORIGINS", "*")
+# CORS設定(本番では CORS_ORIGINS にフロントのURLを指定。前後スペース・改行は自動で除去)
+_cors_origins = (os.getenv("CORS_ORIGINS") or "*").strip()
 allow_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] or ["*"]
+logger.info("CORS allow_origins: %s", allow_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,

@@ -1,0 +1,3 @@
+# Netlify: 存在しないパスだけ index.html に（.js などはそのまま配信）
+# 注意: ファイルは「build/web の中身」をルートにアップロードすること
+/*    /index.html   200
