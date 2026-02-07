@@ -63,7 +63,8 @@ class SummarizeResponse(BaseModel):
     """要約レスポンスのスキーマ"""
 
     video_id: str = Field(..., description="YouTube動画ID")
-    title: str = Field(default="", description="動画タイトル")
+    title: str = Field(default="", description="AIが生成した要約タイトル")
+    video_title: str = Field(default="", description="YouTubeの動画タイトル(取得できた場合)")
     summary: str = Field(..., description="要約テキスト")
     key_points: list[KeyPointItem] = Field(default_factory=list, description="重要ポイントのリスト(開始秒数付き)")
     topics: list[str] = Field(default_factory=list, description="トピックキーワードのリスト")

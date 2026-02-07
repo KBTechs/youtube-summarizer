@@ -21,12 +21,16 @@ DEFAULT_CHUNK_SIZE = 8000
 DEFAULT_CHUNK_OVERLAP = 500
 # API呼び出し時の最大出力トークン数
 MAX_OUTPUT_TOKENS = 4096
+# 要約の一貫性・具体性のため低めに（0=決定的、1=ばらつき大）
+DEFAULT_TEMPERATURE = 0.3
 
 
 # --- プロンプトテンプレート ---
 
 CHUNK_SUMMARY_PROMPT = """\
 あなたはYouTube動画の字幕テキストを要約する専門家です。
+動画のタイトル（参考）: {video_title}
+
 以下は動画の字幕テキストの一部(パート {part_number}/{total_parts})です。
 
 <transcript_chunk>
@@ -35,13 +39,16 @@ CHUNK_SUMMARY_PROMPT = """\
 
 このパートの内容を以下の形式で要約してください:
 - 主要なポイントを箇条書きで3〜5個抽出
-- 各ポイントは1〜2文で簡潔に記述
+- 各ポイントは1〜2文で簡潔に、具体的に記述する（「いろいろ」「さまざま」などの曖昧表現は避ける）
+- 字幕に書かれている事実・発言に基づき、推測や一般論を混ぜない
 - 専門用語はそのまま残す
 
 出力は箇条書きのみにしてください。"""
 
 FINAL_SUMMARY_PROMPT = """\
 あなたはYouTube動画の字幕テキストを要約する専門家です。
+動画のタイトル（参考）: {video_title}
+
 以下は動画全体の字幕テキストから抽出した各パートの要約です。
 
 <partial_summaries>
@@ -63,12 +70,14 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 
 注意:
 - title は動画の核心を捉えた簡潔なものにする
-- summary は動画を見ていない人にも内容が伝わるようにする
-- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": null }}(部分要約からは時刻が出ないため null)
-- topics は動画の主題を表すキーワードを2〜5個"""
+- summary は動画を見ていない人にも内容が伝わるように、具体的に書く。曖昧な表現は避ける
+- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に、内容が分かるように", "start_seconds": null }}(部分要約からは時刻が出ないため null)
+- topics は動画の主題を表すキーワードを2〜5個。抽象的な単語より、動画で扱っている具体的な語を使う"""
 
 SHORT_TEXT_PROMPT = """\
 あなたはYouTube動画の字幕テキストを要約する専門家です。
+動画のタイトル（参考）: {video_title}
+
 以下は動画の字幕テキスト全文です。各行は [秒数] の後にその時刻の字幕が続きます。
 
 <transcript>
@@ -90,9 +99,9 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 
 注意:
 - title は動画の核心を捉えた簡潔なものにする
-- summary は動画を見ていない人にも内容が伝わるようにする
-- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": そのポイントが話されている箇所の [秒数] の整数 }}。該当する秒数が分からない場合は null
-- topics は動画の主題を表すキーワードを2〜5個"""
+- summary は動画を見ていない人にも内容が伝わるように、具体的に書く。曖昧な表現は避ける
+- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に、内容が分かるように", "start_seconds": そのポイントが話されている箇所の [秒数] の整数 }}。該当する秒数が分からない場合は null
+- topics は動画の主題を表すキーワードを2〜5個。抽象的な単語より、動画で扱っている具体的な語を使う"""
 
 
 # --- データクラス ---
@@ -154,7 +163,9 @@ class SummarizerService:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    async def summarize_transcript(self, transcript: str) -> SummaryResult:
+    async def summarize_transcript(
+        self, transcript: str, video_title: str | None = None
+    ) -> SummaryResult:
         """
         字幕テキストを受け取り、構造化された要約を返す。
 
@@ -163,6 +174,7 @@ class SummarizerService:
 
         Args:
             transcript: YouTube動画の字幕テキスト全文。
+            video_title: 動画のタイトル（要約の手がかり。省略可）。
 
         Returns:
             SummaryResult: 構造化された要約結果。
@@ -175,14 +187,15 @@ class SummarizerService:
         if not transcript:
             raise ValueError("字幕テキストが空です。")
 
+        title_hint = (video_title or "").strip() or "（取得していません）"
         chunks = self._split_into_chunks(transcript)
 
         if len(chunks) == 1:
             logger.info("短いテキスト: 直接要約を実行")
-            return await self._summarize_short(transcript)
+            return await self._summarize_short(transcript, video_title=title_hint)
         else:
             logger.info("長いテキスト: %d チャンクに分割して要約", len(chunks))
-            return await self._summarize_long(chunks)
+            return await self._summarize_long(chunks, video_title=title_hint)
 
     def _split_into_chunks(self, text: str) -> list[ChunkInfo]:
         """テキストをチャンクに分割する。"""
@@ -225,13 +238,22 @@ class SummarizerService:
 
         return end
 
-    async def _summarize_short(self, transcript: str) -> SummaryResult:
+    async def _summarize_short(
+        self, transcript: str, video_title: str = "（取得していません）"
+    ) -> SummaryResult:
         """短いテキストを直接要約する。"""
-        prompt = SHORT_TEXT_PROMPT.format(transcript=transcript)
+        prompt = SHORT_TEXT_PROMPT.format(
+            transcript=transcript,
+            video_title=video_title,
+        )
         raw = await self._call_api(prompt)
         return self._parse_summary_response(raw, chunk_count=1)
 
-    async def _summarize_long(self, chunks: list[ChunkInfo]) -> SummaryResult:
+    async def _summarize_long(
+        self,
+        chunks: list[ChunkInfo],
+        video_title: str = "（取得していません）",
+    ) -> SummaryResult:
         """長いテキストをチャンク分割パイプラインで要約する。"""
         partial_summaries: list[str] = []
         for chunk in chunks:
@@ -240,13 +262,17 @@ class SummarizerService:
                 part_number=chunk.part_number,
                 total_parts=chunk.total_parts,
                 chunk=chunk.text,
+                video_title=video_title,
             )
             result = await self._call_api(prompt)
             partial_summaries.append(f"【パート {chunk.part_number}】\n{result}")
 
         logger.info("部分要約を統合中...")
         combined = "\n\n".join(partial_summaries)
-        prompt = FINAL_SUMMARY_PROMPT.format(partial_summaries=combined)
+        prompt = FINAL_SUMMARY_PROMPT.format(
+            partial_summaries=combined,
+            video_title=video_title,
+        )
         raw = await self._call_api(prompt)
         return self._parse_summary_response(raw, chunk_count=len(chunks))
 
@@ -256,6 +282,7 @@ class SummarizerService:
             messages=[{"role": "user", "content": prompt}],
             model=MODEL_ID,
             max_completion_tokens=MAX_OUTPUT_TOKENS,
+            temperature=DEFAULT_TEMPERATURE,
         )
         return chat_completion.choices[0].message.content or ""
 

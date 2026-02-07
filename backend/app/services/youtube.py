@@ -16,6 +16,7 @@ YouTube 字幕取得サービス
 import os
 import re
 import logging
+import httpx
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
 
@@ -44,6 +45,27 @@ class YouTubeTranscriptError(Exception):
         self.message = message
         self.error_code = error_code
         super().__init__(self.message)
+
+
+async def fetch_video_title(video_id: str) -> str:
+    """
+    YouTube oEmbed API で動画タイトルを取得する。
+    失敗時は空文字を返す（要約はタイトルなしで継続）。
+    """
+    url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+    proxy = (os.getenv("YOUTUBE_PROXY_URL") or "").strip() or None
+    try:
+        async with httpx.AsyncClient(proxy=proxy, timeout=5.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            title = (data.get("title") or "").strip()
+            if title:
+                logger.info("動画タイトル取得: %s", title[:50])
+            return title
+    except Exception as e:
+        logger.debug("動画タイトル取得スキップ: %s", e)
+        return ""
 
 
 def extract_video_id(url: str) -> str:

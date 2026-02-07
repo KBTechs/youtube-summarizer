@@ -48,10 +48,13 @@ class VideoSummary {
       );
     }).toList();
 
+    // video_title: YouTubeの動画タイトル（取得できた場合）。なければAI要約タイトルにフォールバック
+    final videoTitle = json['video_title'] as String?;
+    final aiTitle = json['title'] as String? ?? '';
     return VideoSummary(
       videoId: json['video_id'] as String,
-      title: json['title'] as String,
-      summaryTitle: json['title'] as String,
+      title: (videoTitle != null && videoTitle.isNotEmpty) ? videoTitle : aiTitle,
+      summaryTitle: aiTitle,
       keyPoints: keyPoints,
       detailedSummary: json['summary'] as String,
       topics: List<String>.from(json['topics'] as List? ?? []),

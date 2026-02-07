@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import SummarizeRequest, SummarizeResponse, ErrorResponse, KeyPointItem
-from app.services.youtube import fetch_transcript, YouTubeTranscriptError
+from app.services.youtube import fetch_transcript, fetch_video_title, YouTubeTranscriptError
 from app.services.summarizer import SummarizerService
 
 logger = logging.getLogger(__name__)
@@ -50,13 +50,16 @@ async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
             detail={"detail": e.message, "error_code": e.error_code},
         )
 
-    # ステップ3: Groq APIで要約を生成(字幕に [秒数] を付与して時刻付きキーポイントを得る)
+    # 動画タイトルを取得(要約の手がかりにし、レスポンスでも返す)
+    video_title = await fetch_video_title(transcript.video_id)
+
+    # ステップ3: Groq APIで要約を生成(字幕に [秒数] を付与、タイトルを手がかりに渡す)
     timestamped_text = "\n".join(
         f"[{int(seg.start)}] {seg.text}" for seg in transcript.segments
     )
     try:
         service = SummarizerService()
-        result = await service.summarize_transcript(timestamped_text)
+        result = await service.summarize_transcript(timestamped_text, video_title=video_title or None)
     except Exception as e:
         logger.error(f"要約生成エラー: {e}")
         raise HTTPException(
@@ -75,6 +78,7 @@ async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
     return SummarizeResponse(
         video_id=transcript.video_id,
         title=result.title,
+        video_title=video_title,
         summary=result.summary,
         key_points=key_point_items,
         topics=result.topics,
