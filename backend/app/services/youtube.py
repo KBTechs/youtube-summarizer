@@ -23,6 +23,7 @@ class YouTubeTranscriptError(Exception):
     """字幕取得に関するカスタム例外"""
 
     def __init__(self, message: str, error_code: str = "TRANSCRIPT_ERROR"):
+        """エラーメッセージとコードを設定する。"""
         self.message = message
         self.error_code = error_code
         super().__init__(self.message)
