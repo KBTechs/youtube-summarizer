@@ -32,11 +32,34 @@ class SummaryError extends SummaryState {
   const SummaryError(this.message);
 }
 
+/// 要約履歴を管理するNotifier（メモリ上に保持、アプリ終了で消える）
+class SummaryHistoryNotifier extends StateNotifier<List<VideoSummary>> {
+  SummaryHistoryNotifier() : super([]);
+
+  void add(VideoSummary summary) {
+    state = [summary, ...state];
+  }
+
+  void removeAt(int index) {
+    state = [...state]..removeAt(index);
+  }
+
+  void clear() {
+    state = [];
+  }
+}
+
+final summaryHistoryProvider =
+    StateNotifierProvider<SummaryHistoryNotifier, List<VideoSummary>>((ref) {
+  return SummaryHistoryNotifier();
+});
+
 /// 要約状態を管理するNotifier
 class SummaryNotifier extends StateNotifier<SummaryState> {
   final ApiService _apiService;
+  final SummaryHistoryNotifier _history;
 
-  SummaryNotifier(this._apiService) : super(const SummaryInitial());
+  SummaryNotifier(this._apiService, this._history) : super(const SummaryInitial());
 
   /// YouTube URLから要約を取得
   Future<void> summarize(String url) async {
@@ -44,11 +67,17 @@ class SummaryNotifier extends StateNotifier<SummaryState> {
     try {
       final summary = await _apiService.summarize(url: url);
       state = SummaryLoaded(summary);
+      _history.add(summary);
     } on ApiException catch (e) {
       state = SummaryError(e.message);
     } catch (e) {
       state = const SummaryError('通信エラーが発生しました。ネットワーク接続を確認してください。');
     }
+  }
+
+  /// 履歴から要約を表示
+  void loadFromHistory(VideoSummary summary) {
+    state = SummaryLoaded(summary);
   }
 
   /// 状態をリセット
@@ -61,5 +90,6 @@ class SummaryNotifier extends StateNotifier<SummaryState> {
 final summaryProvider =
     StateNotifierProvider<SummaryNotifier, SummaryState>((ref) {
   final apiService = ref.watch(apiServiceProvider);
-  return SummaryNotifier(apiService);
+  final history = ref.watch(summaryHistoryProvider.notifier);
+  return SummaryNotifier(apiService, history);
 });

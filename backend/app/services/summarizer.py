@@ -55,9 +55,8 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
   "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
   "summary": "動画全体の概要を3〜5文で記述した要約文",
   "key_points": [
-    "重要ポイント1",
-    "重要ポイント2",
-    "重要ポイント3"
+    {{ "text": "重要ポイント1", "start_seconds": null }},
+    {{ "text": "重要ポイント2", "start_seconds": null }}
   ],
   "topics": ["トピック1", "トピック2"]
 }}
@@ -65,12 +64,12 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 注意:
 - title は動画の核心を捉えた簡潔なものにする
 - summary は動画を見ていない人にも内容が伝わるようにする
-- key_points は3〜7個、各ポイントは1文で簡潔に
+- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": null }}（部分要約からは時刻が出ないため null）
 - topics は動画の主題を表すキーワードを2〜5個"""
 
 SHORT_TEXT_PROMPT = """\
 あなたはYouTube動画の字幕テキストを要約する専門家です。
-以下は動画の字幕テキスト全文です。
+以下は動画の字幕テキスト全文です。各行は [秒数] の後にその時刻の字幕が続きます。
 
 <transcript>
 {transcript}
@@ -83,9 +82,8 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
   "title": "動画の内容を端的に表す日本語タイトル（20文字以内）",
   "summary": "動画全体の概要を3〜5文で記述した要約文",
   "key_points": [
-    "重要ポイント1",
-    "重要ポイント2",
-    "重要ポイント3"
+    {{ "text": "重要ポイント1", "start_seconds": 該当する [秒数] の整数 }},
+    {{ "text": "重要ポイント2", "start_seconds": 該当する [秒数] の整数 }}
   ],
   "topics": ["トピック1", "トピック2"]
 }}
@@ -93,18 +91,25 @@ JSONのみを出力し、それ以外のテキストは含めないでくださ�
 注意:
 - title は動画の核心を捉えた簡潔なものにする
 - summary は動画を見ていない人にも内容が伝わるようにする
-- key_points は3〜7個、各ポイントは1文で簡潔に
+- key_points は3〜7個。各要素は {{ "text": "1文で簡潔に", "start_seconds": そのポイントが話されている箇所の [秒数] の整数 }}。該当する秒数が分からない場合は null
 - topics は動画の主題を表すキーワードを2〜5個"""
 
 
 # --- データクラス ---
 
 @dataclass
+class KeyPointItem:
+    """キーポイント1件（開始秒数は任意）"""
+    text: str
+    start_seconds: int | None = None
+
+
+@dataclass
 class SummaryResult:
     """要約結果を格納するデータクラス。"""
     title: str
     summary: str
-    key_points: list[str]
+    key_points: list[KeyPointItem]
     topics: list[str]
     chunk_count: int = 1
     model: str = MODEL_ID
@@ -338,15 +343,29 @@ class SummarizerService:
             return SummaryResult(
                 title="要約の生成に部分的に成功",
                 summary=raw[:500],
-                key_points=["要約結果のパースに失敗しました。生テキストを確認してください。"],
+                key_points=[KeyPointItem("要約結果のパースに失敗しました。生テキストを確認してください。")],
                 topics=[],
                 chunk_count=chunk_count,
             )
 
+        raw_kps = data.get("key_points", [])
+        key_points: list[KeyPointItem] = []
+        for item in raw_kps:
+            if isinstance(item, str):
+                key_points.append(KeyPointItem(text=item, start_seconds=None))
+            elif isinstance(item, dict):
+                text = item.get("text", "")
+                sec = item.get("start_seconds")
+                if sec is not None and not isinstance(sec, int):
+                    sec = int(sec) if sec is not None else None
+                key_points.append(KeyPointItem(text=text, start_seconds=sec))
+            else:
+                key_points.append(KeyPointItem(text=str(item), start_seconds=None))
+
         return SummaryResult(
             title=data.get("title", "タイトル不明"),
             summary=data.get("summary", ""),
-            key_points=data.get("key_points", []),
+            key_points=key_points,
             topics=data.get("topics", []),
             chunk_count=chunk_count,
         )

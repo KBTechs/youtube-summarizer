@@ -44,11 +44,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final url = _urlController.text.trim();
     ref.read(summaryProvider.notifier).summarize(url);
 
-    // 要約結果画面へ遷移
+    // 要約結果画面へ遷移（戻ったらURLをクリア）
     if (mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const SummaryScreen()),
-      );
+      ).then((_) {
+        if (mounted) _urlController.clear();
+      });
     }
   }
 
@@ -152,12 +154,94 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     icon: Icons.checklist,
                     text: 'キーポイントを一覧で確認',
                   ),
+                  const SizedBox(height: 32),
+
+                  // 履歴
+                  _buildHistorySection(context, ref),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildHistorySection(BuildContext context, WidgetRef ref) {
+    final history = ref.watch(summaryHistoryProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    if (history.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.history, size: 20, color: colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              '最近の要約',
+              style: textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...history.take(10).map(
+          (summary) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                onTap: () {
+                  ref.read(summaryProvider.notifier).loadFromHistory(summary);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SummaryScreen()),
+                  ).then((_) {
+                    if (mounted) _urlController.clear();
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          summary.thumbnailUrl,
+                          width: 72,
+                          height: 40,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.smart_display,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          summary.title,
+                          style: textTheme.bodyMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

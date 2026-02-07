@@ -5,6 +5,11 @@ FastAPI アプリケーションのエントリポイント
 import logging
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+
+# .env を読み込み（ANTHROPIC_API_KEY 等を os.environ に載せる）
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
