@@ -5,17 +5,17 @@ FastAPI アプリケーションのエントリポイント
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-# backend/.env を確実に読み込む(どこから起動しても動くように)
-_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_backend_dir, ".env"))
+# backend/.env を先に読む（app 内で getenv が import 時に使われるため）
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.routers import summarize
+from app.routers import summarize  # noqa: E402
 
 # ログ設定
 logging.basicConfig(
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="YouTube Summarizer API",
-    description="YouTube動画の字幕を取得し、Claude APIで要約を生成するAPI",
+    description="YouTube動画の字幕を取得し、Groq APIで要約を生成するAPI",
     version="1.0.0",
     lifespan=lifespan,
 )

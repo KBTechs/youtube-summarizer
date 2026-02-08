@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["summarize"])
         500: {"model": ErrorResponse, "description": "サーバーエラー"},
     },
     summary="YouTube動画を要約する",
-    description="YouTube動画のURLを受け取り、字幕を取得してClaude APIで要約を生成する",
+    description="YouTube動画のURLを受け取り、字幕を取得してGroq APIで要約を生成する",
 )
 async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
     """
@@ -33,7 +33,7 @@ async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
     処理フロー:
     1. URLから動画IDを抽出
     2. 字幕テキストを取得
-    3. Claude APIで要約を生成
+    3. Groq APIで要約を生成
     4. 結果を返却
     """
     # ステップ1-2: 字幕を取得
