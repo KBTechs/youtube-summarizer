@@ -4,15 +4,20 @@ POST /api/summarize - YouTube動画の字幕を取得し要約を返す
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.models.schemas import SummarizeRequest, SummarizeResponse, ErrorResponse, KeyPointItem
-from app.services.youtube import fetch_transcript, fetch_video_title, YouTubeTranscriptError
+from app.services.youtube import fetch_transcript, fetch_video_title
 from app.services.summarizer import SummarizerService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["summarize"])
+
+
+def get_summarizer_service() -> SummarizerService:
+    """SummarizerService のファクトリ。FastAPI の Depends で注入する。"""
+    return SummarizerService()
 
 
 @router.post(
@@ -26,39 +31,32 @@ router = APIRouter(prefix="/api", tags=["summarize"])
     summary="YouTube動画を要約する",
     description="YouTube動画のURLを受け取り、字幕を取得してGroq APIで要約を生成する",
 )
-async def summarize_video(request: SummarizeRequest) -> SummarizeResponse:
+async def summarize_video(
+    request: SummarizeRequest,
+    service: SummarizerService = Depends(get_summarizer_service),
+) -> SummarizeResponse:
     """
     YouTube動画の要約エンドポイント
 
     処理フロー:
-    1. URLから動画IDを抽出
-    2. 字幕テキストを取得
-    3. Groq APIで要約を生成
+    1. 字幕テキストを取得（YouTubeTranscriptError は main の例外ハンドラで HTTP に変換）
+    2. 動画タイトルを取得
+    3. Groq APIで要約を生成（service は Depends で注入）
     4. 結果を返却
     """
-    # ステップ1-2: 字幕を取得
-    try:
-        transcript = await fetch_transcript(
-            url=request.url,
-            language=request.language,
-        )
-    except YouTubeTranscriptError as e:
-        logger.warning(f"字幕取得エラー: {e.message}")
-        status_code = 404 if e.error_code == "NO_TRANSCRIPT" else 400
-        raise HTTPException(
-            status_code=status_code,
-            detail={"detail": e.message, "error_code": e.error_code},
-        )
+    transcript = await fetch_transcript(
+        url=request.url,
+        language=request.language,
+    )
 
     # 動画タイトルを取得(要約の手がかりにし、レスポンスでも返す)
     video_title = await fetch_video_title(transcript.video_id)
 
-    # ステップ3: Groq APIで要約を生成(字幕に [秒数] を付与、タイトルを手がかりに渡す)
+    # 要約生成（service は DI で渡される）
     timestamped_text = "\n".join(
         f"[{int(seg.start)}] {seg.text}" for seg in transcript.segments
     )
     try:
-        service = SummarizerService()
         result = await service.summarize_transcript(timestamped_text, video_title=video_title or None)
     except Exception as e:
         logger.error(f"要約生成エラー: {e}")

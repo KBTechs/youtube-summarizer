@@ -3,7 +3,6 @@ FastAPI アプリケーションのエントリポイント
 """
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,8 +13,11 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 
+from app.config import Settings  # noqa: E402
 from app.routers import summarize  # noqa: E402
+from app.services.youtube import YouTubeTranscriptError  # noqa: E402
 
 # ログ設定
 logging.basicConfig(
@@ -23,6 +25,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# 設定は起動時に1回だけ読む
+settings = Settings()
 
 
 @asynccontextmanager
@@ -40,17 +45,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS設定(本番では CORS_ORIGINS にフロントのURLを指定。前後スペース・改行は自動で除去)
-_cors_origins = (os.getenv("CORS_ORIGINS") or "*").strip()
-allow_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()] or ["*"]
-logger.info("CORS allow_origins: %s", allow_origins)
+# CORS設定（config から取得。本番では CORS_ORIGINS にフロントのURLを指定）
+logger.info("CORS allow_origins: %s", settings.allow_origins_list)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=settings.allow_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ドメイン例外を HTTP レスポンスに変換（ルーターを薄く保つ）
+@app.exception_handler(YouTubeTranscriptError)
+async def youtube_transcript_error_handler(_, exc: YouTubeTranscriptError):
+    status_code = 404 if exc.error_code == "NO_TRANSCRIPT" else 400
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": {"detail": exc.message, "error_code": exc.error_code}},
+    )
 
 # ルーターを登録
 app.include_router(summarize.router)
